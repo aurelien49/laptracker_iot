@@ -3,28 +3,34 @@
 Led::Led(uint8_t pin)
   : PIN(pin), light(false), isFlashing(false) {}
 
+bool Led::getLight() const {
+  return light;
+}
+
+void Led::setLight(bool value) {
+  light = value;
+}
+
+bool Led::getRecording() const {
+  return isFlashing;
+}
+
+void Led::setRecording(bool value) {
+  isFlashing = value;
+}
+
 void Led::toggle(LedState state) {
   switch (state) {
     case LED_OFF:
       digitalWrite(PIN, LOW);
       light = false;
-      isFlashing = false;
       break;
     case LED_ON:
       digitalWrite(PIN, HIGH);
       light = true;
-      isFlashing = false;
       break;
     case LED_FLASHING:
       isFlashing = true;
       break;
   }
-}
-
-bool Led::isMaybeFlashing() const {
-  return isFlashing;
-}
-
-bool Led::isLightOn() const {
-  return light;
 }

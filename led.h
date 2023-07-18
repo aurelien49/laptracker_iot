@@ -18,9 +18,12 @@ private:
 public:
   Led(uint8_t pin);
 
+  bool getLight() const;
+  void setLight(bool value);
+  bool getRecording() const;
+  void setRecording(bool value);
+
   void toggle(LedState state);
-  bool isMaybeFlashing() const;
-  bool isLightOn() const;
 };
 
 #endif
