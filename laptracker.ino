@@ -2,6 +2,7 @@
 #include "Button.h"
 #include "Led.h"
 #include "temperature_humidity.h"
+#include "temperature_humidity_records.h"
 #include <vector>
 
 #define DHTPIN 22
@@ -13,6 +14,9 @@ const int LED_PIN = 19;
 
 float temperature = 0.0;
 float humidity = 0.0;
+
+TemperatureHumidityRecords temperatureHumidityRecords;
+TemperatureHumidity temperatureHumidity;
 
 Button bpPower(BUTTON_PIN_POWER);
 Button bpRecord(BUTTON_PIN_RECORD);
@@ -27,6 +31,19 @@ void handleButtonInterruptRecord() {
   bpRecord.handleInterrupt();
 }
 
+void displayTemperatureHumidityRecords() {
+  // Obtenez la liste de température et d'humidité
+  std::vector<TemperatureHumidity>& records = temperatureHumidityRecords.getTemperatureHumidityList();
+
+  // Parcourez la liste et affichez les valeurs
+  for (const TemperatureHumidity& data : records) {
+    Serial.print("Temperature: ");
+    Serial.print(data.temperature);
+    Serial.print(", Humidity: ");
+    Serial.println(data.humidity);
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   pinMode(BUTTON_PIN_POWER, INPUT_PULLUP);
@@ -37,6 +54,8 @@ void setup() {
 
   attachInterrupt(digitalPinToInterrupt(BUTTON_PIN_POWER), handleButtonInterruptPower, FALLING);
   attachInterrupt(digitalPinToInterrupt(BUTTON_PIN_RECORD), handleButtonInterruptRecord, FALLING);
+
+  // displayTemperatureHumidityRecords();
 }
 
 void loop() {
@@ -68,6 +87,7 @@ void loop() {
     if (currentTime - lastToggleTime >= 2000) {
       lastToggleTime = currentTime;
       ld.toggle(LED_ON);
+
       humidity = dht.readHumidity();
       temperature = dht.readTemperature();
 
@@ -75,11 +95,15 @@ void loop() {
         Serial.println("Echec reception");
         return;
       }
-      Serial.print("Humidite: ");
-      Serial.print(humidity);
-      Serial.print("%  Temperature: ");
-      Serial.print(temperature);
-      Serial.println("°C, ");
+
+      if (temperatureHumidityRecords.getTemperatureHumidityList().size() < 2000) {
+        temperatureHumidity.humidity = humidity;
+        temperatureHumidity.temperature = temperature;
+
+        temperatureHumidityRecords.addTemperatureHumidity(temperatureHumidity);
+        Serial.println(temperatureHumidityRecords.toStringSavedValue(temperatureHumidity));
+      }
+
       delay(1000);
       ld.toggle(LED_OFF);
     }
