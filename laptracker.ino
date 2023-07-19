@@ -1,6 +1,7 @@
 #include "DHT.h"
-#include "Button.h"
-#include "Led.h"
+#include "button.h"
+#include "led.h"
+#include "led_state.h"
 #include "temperature_humidity.h"
 #include "temperature_humidity_records.h"
 #include <vector>
@@ -15,13 +16,13 @@ const int LED_PIN = 19;
 float temperature = 0.0;
 float humidity = 0.0;
 
-TemperatureHumidityRecords temperatureHumidityRecords;
-TemperatureHumidity temperatureHumidity;
+DHT dht(DHTPIN, DHTTYPE);
+TemperatureHumidity temperatureHumidity = { 0.0, 0.0 };
+TemperatureHumidityRecords temperatureHumidityRecords(dht);
 
 Button bpPower(BUTTON_PIN_POWER);
 Button bpRecord(BUTTON_PIN_RECORD);
-Led ld(LED_PIN);
-DHT dht(DHTPIN, DHTTYPE);
+Led greenLed(LED_PIN);
 
 void handleButtonInterruptPower() {
   bpPower.handleInterrupt();
@@ -29,19 +30,6 @@ void handleButtonInterruptPower() {
 
 void handleButtonInterruptRecord() {
   bpRecord.handleInterrupt();
-}
-
-void displayTemperatureHumidityRecords() {
-  // Obtenez la liste de température et d'humidité
-  std::vector<TemperatureHumidity>& records = temperatureHumidityRecords.getTemperatureHumidityList();
-
-  // Parcourez la liste et affichez les valeurs
-  for (const TemperatureHumidity& data : records) {
-    Serial.print("Temperature: ");
-    Serial.print(data.temperature);
-    Serial.print(", Humidity: ");
-    Serial.println(data.humidity);
-  }
 }
 
 void setup() {
@@ -54,61 +42,52 @@ void setup() {
 
   attachInterrupt(digitalPinToInterrupt(BUTTON_PIN_POWER), handleButtonInterruptPower, FALLING);
   attachInterrupt(digitalPinToInterrupt(BUTTON_PIN_RECORD), handleButtonInterruptRecord, FALLING);
-
-  // displayTemperatureHumidityRecords();
 }
 
 void loop() {
-  static unsigned long lastToggleTime = 0;
-  unsigned long currentTime = millis();
-
   if (bpPower.isPressed()) {
-    if (ld.getLight() || ld.getRecording()) {
-      ld.toggle(LED_OFF);
-      ld.setRecording(false);
+    if (greenLed.getLedState() == LED_ON || greenLed.getLedState() == LED_FLASHING) {
+      greenLed.toggle(LED_OFF);
+      mainDisplayRecords(temperatureHumidityRecords.getTemperatureHumidityList());
     } else {
+      greenLed.toggle(LED_ON);
       bpRecord.setPressed(false);
-      ld.toggle(LED_ON);
-      ld.setRecording(false);
     }
     bpPower.setPressed(false);
   }
 
-  if (bpRecord.isPressed() && ld.getLight()) {
-    if (ld.getRecording()) {
-      ld.toggle(LED_ON);
-    } else {
-      ld.toggle(LED_FLASHING);
+  if (bpRecord.isPressed()) {
+    if (greenLed.getLedState() == LED_FLASHING) {
+      greenLed.toggle(LED_ON);
+    } else if (greenLed.getLedState() == LED_ON) {
+      greenLed.toggle(LED_FLASHING);
     }
     bpRecord.setPressed(false);
   }
 
-  if (ld.getRecording()) {
-    if (currentTime - lastToggleTime >= 2000) {
-      lastToggleTime = currentTime;
-      ld.toggle(LED_ON);
-
-      humidity = dht.readHumidity();
-      temperature = dht.readTemperature();
-
-      if (isnan(humidity) || isnan(temperature)) {
-        Serial.println("Echec reception");
-        return;
-      }
-
-      if (temperatureHumidityRecords.getTemperatureHumidityList().size() < 2000) {
-        temperatureHumidity.humidity = humidity;
-        temperatureHumidity.temperature = temperature;
-
-        temperatureHumidityRecords.addTemperatureHumidity(temperatureHumidity);
-        Serial.println(temperatureHumidityRecords.toStringSavedValue(temperatureHumidity));
-      }
-
-      delay(1000);
-      ld.toggle(LED_OFF);
-    }
+  if (greenLed.getLedState() == LED_FLASHING) {
+    try {
+      greenLed.blinking();
+    } catch (const char* message) { Serial.println(message); }
   }
 
-  // Allow other tasks to run by adding a small delay
+  if (greenLed.getLedState() == LED_FLASHING) {
+    temperatureHumidityRecords.recording(millis());
+  }
+
   delay(1);
+}
+
+void mainDisplayRecords(std::vector<TemperatureHumidity> temperatureHumidityList) {
+  if (temperatureHumidityList.empty()) {
+    Serial.println("La liste de température et d'humidité est vide !");
+  } else {
+    for (const TemperatureHumidity& data : temperatureHumidityList) {
+      Serial.print("Temperature: ");
+      Serial.print(data.temperature);
+      Serial.print(" °C, Humidity: ");
+      Serial.print(data.humidity);
+      Serial.println(" %");
+    }
+  }
 }

@@ -1,36 +1,52 @@
-#include "Led.h"
+#include "led.h"
+#include "led_state.h"
 
 Led::Led(uint8_t pin)
-  : PIN(pin), light(false), isFlashing(false) {}
+  : PIN(pin), lightState(LED_OFF), lastToggleTime(0), blinkingLightOn(false) {}
 
-bool Led::getLight() const {
-  return light;
+LedState Led::getLedState() {
+  return lightState;
 }
 
-void Led::setLight(bool value) {
-  light = value;
+void Led::setLedState(LedState state) {
+  lightState = state;
 }
 
-bool Led::getRecording() const {
-  return isFlashing;
-}
+void Led::blinking() {
+  unsigned long currentTime = millis();
 
-void Led::setRecording(bool value) {
-  isFlashing = value;
+  if (currentTime - lastToggleTime >= (blinkingLightOn == false ? BLINKING_TIME_OFF : BLINKING_TIME_ON)) {
+    lastToggleTime = currentTime;
+
+    if (blinkingLightOn == false) {
+      digitalWrite(PIN, HIGH);
+      blinkingLightOn = true;
+    } else {
+      digitalWrite(PIN, LOW);
+      blinkingLightOn = false;
+    }
+  }
 }
 
 void Led::toggle(LedState state) {
   switch (state) {
     case LED_OFF:
+      setLedState(LED_OFF);
       digitalWrite(PIN, LOW);
-      light = false;
       break;
     case LED_ON:
+      setLedState(LED_ON);
       digitalWrite(PIN, HIGH);
-      light = true;
       break;
     case LED_FLASHING:
-      isFlashing = true;
+      setLedState(LED_FLASHING);
+      blinking();
       break;
+    default:
+      throw 'Led state not implemented';
   }
+}
+
+void Led::displayMessage(String msg) {
+  Serial.println(msg);
 }

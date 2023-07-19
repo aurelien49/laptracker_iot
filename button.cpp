@@ -1,4 +1,4 @@
-#include "Button.h"
+#include "button.h"
 
 Button::Button(uint8_t pin)
   : PIN(pin), pressed(false), debounceTime(0) {}
@@ -22,4 +22,8 @@ void IRAM_ATTR Button::handleInterrupt() {
       pressed = false;
     }
   }
+}
+
+void Button::displayMessage(String msg) {
+  Serial.println(msg);
 }
