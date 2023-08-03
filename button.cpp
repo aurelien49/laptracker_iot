@@ -13,14 +13,9 @@ void Button::setPressed(bool value) {
 
 void IRAM_ATTR Button::handleInterrupt() {
   unsigned long currentTime = millis();
-  if (currentTime - debounceTime >= 250) {
+  if (currentTime - debounceTime >= 200) {
     debounceTime = currentTime;
-
-    if (digitalRead(PIN) == LOW) {
-      pressed = true;
-    } else {
-      pressed = false;
-    }
+    pressed = true;
   }
 }
 

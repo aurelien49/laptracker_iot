@@ -11,13 +11,10 @@ private:
 
 public:
   Button(uint8_t pin);
-
-  bool isPressed() const;
   
+  bool isPressed() const;
   void setPressed(bool value);
-
   void IRAM_ATTR handleInterrupt();
-
   void displayMessage(String msg);
 };
 
