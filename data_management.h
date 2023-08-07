@@ -4,28 +4,33 @@
 #include <Arduino.h>
 #include "data_struct.h"
 #include "DHT.h"
-#include <DS3231.h>
 #include <vector>
+#include <RTClib.h>
 
 class DataManagement {
 private:
   std::vector<DataStruct> dataList;
-  DHT& dht;
-  DS3231 clock3;
-  RTCDateTime dateAndTime;
+  DHT dht;
+  RTC_DS1307* rtc;
+  DateTime dateAndTimeM;
   unsigned long lastToggleTime;
-  const int RECORDING_TIME = 2000;
-  const int MAX_RECORDS = 2000;
+  int RECORDING_TIME = 2000;
+  int MAX_RECORDS = 2000;
 
 public:
-  DataManagement(DHT& dht, DS3231& clock2)
-    : dataList(), dht(dht), clock3(clock2), lastToggleTime(0) {}
+  DataManagement(int dhtPin, uint8_t dhtType, RTC_DS1307* rtc0, DateTime clock0, const int RECORDING_TIME0, const int MAX_RECORDS0);
 
   std::vector<DataStruct>& getdataList();
 
   void recordingData(unsigned long currentTime);
 
   void displayRecords();
+
+  void eraseList();
+
+  void updateDateAndTime(DateTime dateAndTime);
+
+  DateTime getDateAndTime();
 
 private:
   void setdataList(const std::vector<DataStruct>& values);

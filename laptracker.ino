@@ -1,131 +1,225 @@
 #include "DHT.h"
+#include <BluetoothSerial.h>
 #include "button.h"
+#include "data_management.h"
 #include "Grafcet.h"
 #include "led.h"
 #include "led_state.h"
-#include "data_management.h"
 #include <vector>
 #include <Wire.h>
+#include <RTClib.h>
 
 #define DHTTYPE DHT11
+#define DHTPIN 32
 
 #define BUTTON_PIN_POWER 18
+#define BUTTON_PIN_RECORD 33
 #define LED_PIN 19
 #define SDA_RTC 21
 #define SCL_RTC 22
-#define DHTPIN 32
-#define BUTTON_PIN_RECORD 33
 
-DS3231 clock2;
+const int RECORDING_TIME = 2000;
+const int MAX_RECORDS = 2000;
+
+BluetoothSerial SerialBT;
+
+RTC_DS1307 rtc;
+DateTime clock0 = DateTime(2019, 6, 2, 12, 30, 20);
 
 float temperature = 0.0;
 float humidity = 0.0;
 
-DHT dht(DHTPIN, DHTTYPE);
-DataManagement dataManagement(dht, clock2);
+Button* bpPower;
+Button* bpRecord;
+DataManagement* dataManagement;
+Led* greenLed;
 
-Button bpPower(BUTTON_PIN_POWER);
-Button bpRecord(BUTTON_PIN_RECORD);
+const std::vector<int> grafcetStepNumbers = { 0, 1, 2, 3, 4, 5, 6 };
+Grafcet grafcet(grafcetStepNumbers);
 
-Led greenLed(LED_PIN);
+int recordSize = 0;
+bool dataTimeUpdateRequired = false, readDataListRequired = false, razDataListRequired = false, maxRecordReached = false;
 
-// Numéros des étapes dans le Grafcet
-const std::vector<int> stepNumbers = { 0, 1, 2, 3, 4, 5 };
-Grafcet grafcet(stepNumbers);
-
-bool dataTimeUpdateRequired = false, readDataListRequired = false, razDataListRequired = false;
-
-void handleButtonInterruptPower() {
-  bpPower.handleInterrupt();
-}
+std::vector<DataStruct> dataList;
 
 void handleButtonInterruptRecordFalling() {
-  bpRecord.handleInterrupt();
+  bpRecord->handleInterrupt();
 }
 
 void setup() {
   Serial.begin(115200);
+  SerialBT.begin("LapTracker ici");
+
+  bpPower = new Button(BUTTON_PIN_POWER);
+  bpRecord = new Button(BUTTON_PIN_RECORD);
+  dataManagement = new DataManagement(DHTPIN, DHTTYPE, &rtc, clock0, RECORDING_TIME, MAX_RECORDS);
+  greenLed = new Led(LED_PIN);
+
   pinMode(BUTTON_PIN_POWER, INPUT_PULLUP);
   pinMode(BUTTON_PIN_RECORD, INPUT_PULLUP);
   pinMode(LED_PIN, OUTPUT);
 
-  clock2.begin();
-  clock2.setDateTime(2023, 8, 3, 21, 6, 0);
-
-  dht.begin();
-
-  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN_POWER), handleButtonInterruptPower, RISING);
-
   attachInterrupt(digitalPinToInterrupt(BUTTON_PIN_RECORD), handleButtonInterruptRecordFalling, FALLING);
 
+  delay(1000);
   grafcet.update(0);
 }
 
 void loop() {
   transitions();
   posterieur();
+
+  if (SerialBT.available()) {
+    Serial.println("SerialBT.available");
+
+    String commandReceived = SerialBT.readStringUntil('\n');
+
+    size_t separatorPos = commandReceived.indexOf("::");
+    String command = commandReceived.substring(0, separatorPos);
+
+    Serial.print("commandReceived: ");
+    Serial.println(String(commandReceived));
+
+    if (command == "UPDATE_TIME") {
+      String temp = commandReceived.substring(separatorPos + 2);
+      clock0 = decodeDateTimeString(temp);
+      dataTimeUpdateRequired = true;
+    } else if (command == "GET_DATA_LIST") {
+      readDataListRequired = true;
+    } else if (command == "ERASE_DATA_LIST") {
+      razDataListRequired = true;
+    } else {
+      Serial.println("+++++++++++++ Invalid Bluetooth command received");
+    }
+  }
   delay(1);
 }
 
 void transitions() {
+  // Etape 0 : Ajouter des initialisations nécessaires
   if (grafcet.getActiveStepNumber() == 0) {
-    if (bpRecord.isPressed()) {
+    if (bpRecord->isPressed()) {
+      // Etape 1 : la led verte est allumé pour signifier que le module est pret
       grafcet.update(1);
+      //logInfo("Step 1 : ready");
     }
   } else if (grafcet.getActiveStepNumber() == 1) {
-    if (bpRecord.isPressed() && !dataTimeUpdateRequired && !readDataListRequired && !razDataListRequired) {
+    if (bpRecord->isPressed() && !dataTimeUpdateRequired && !readDataListRequired && !razDataListRequired) {
+      // Etape 2 : la led verte clignote et on enregistre la température, l'humidité et la date et l'heure toutes les 2 secondes
       grafcet.update(2);
+      //recordSize = dataManagement->getdataList().size();
+      //logInfo("Step 2 : il y a " + String(recordSize) + " enregistrements");
     }
-    if (!bpRecord.isPressed() && dataTimeUpdateRequired && !readDataListRequired && !razDataListRequired) {
+    if (!bpRecord->isPressed() && dataTimeUpdateRequired && !readDataListRequired && !razDataListRequired) {
+      // Etape 3 : Mise à jour de l'heure en Bluetooth avec l'app Flutter
       grafcet.update(3);
+      //logInfo("Step 3 : date and time updated");
     }
-    if (!bpRecord.isPressed() && !dataTimeUpdateRequired && readDataListRequired && !razDataListRequired) {
+    if (!bpRecord->isPressed() && !dataTimeUpdateRequired && readDataListRequired && !razDataListRequired) {
+      // Etape 4 :  l'app Flutter vient lire en Bluetooth le contenu de la liste des données que l'on récupère par "dataManagement.getdataList()"
       grafcet.update(4);
     }
-    if (!bpRecord.isPressed() && !dataTimeUpdateRequired && !readDataListRequired && razDataListRequired) {
+    if (!bpRecord->isPressed() && !dataTimeUpdateRequired && !readDataListRequired && razDataListRequired) {
+      // Etape 5 : effacement de la liste de données via le Bluetooth avec l'app Flutter avec "dataManagement.eraseList()"
       grafcet.update(5);
     }
-  } else if (grafcet.getActiveStepNumber() == 2 && bpRecord.isPressed()) {
-    grafcet.update(1);
+  } else if (grafcet.getActiveStepNumber() == 2) {
+    if (bpRecord->isPressed() && !maxRecordReached) {
+      grafcet.update(1);
+      recordSize = dataManagement->getdataList().size();
+      logInfo("Step 2 : il y a " + String(recordSize) + " enregistrements");
+    } else if (!bpRecord->isPressed() && maxRecordReached) {
+      grafcet.update(6);
+      recordSize = dataManagement->getdataList().size();
+      logInfo("Step 2 : il y a " + String(recordSize) + " enregistrements");
+    }
+  } else if (grafcet.getActiveStepNumber() == 3) {
+    // Date and time update from Bluetooth
+    if (!dataTimeUpdateRequired) {
+      grafcet.update(1);
+    }
+  } else if (grafcet.getActiveStepNumber() == 4) {
+    // Send records from Bluetooth
+    if (!readDataListRequired) {
+      grafcet.update(1);
+    }
+  } else if (grafcet.getActiveStepNumber() == 5) {
+    // Erease records from Bluetooth
+    if (!razDataListRequired) {
+      grafcet.update(1);
+    }
+  } else if (grafcet.getActiveStepNumber() == 6) {
+    // Max records reached
+    if (bpRecord->isPressed()) {
+      grafcet.update(1);
+    }
   }
-  bpRecord.setPressed(false);
+  bpRecord->setPressed(false);
 }
 
 void posterieur() {
   switch (grafcet.getActiveStepNumber()) {
+    case 0:
+      break;
     case 1:
-      greenLed.toggle(LED_ON);
+      greenLed->toggle(LED_ON);
       break;
     case 2:
-      greenLed.toggle(LED_FLASHING);
-      dataManagement.recordingData(millis());
+      greenLed->toggle(LED_FLASHING);
+      dataManagement->recordingData(millis());
+      recordSize = dataManagement->getdataList().size();
+      maxRecordReached = recordSize > MAX_RECORDS ? true : false;
       break;
     case 3:
-
+      rtc.adjust(clock0);
+      dataTimeUpdateRequired = false;
       break;
     case 4:
-
+      dataList = dataManagement->getdataList();
+      readDataListRequired = false;
       break;
     case 5:
-
+      dataManagement->eraseList();
+      razDataListRequired = false;
+      //logInfo("Step 5 : records ereased from Bluetooth");
+      break;
+    case 6:
+      //logInfo("Step 6 : maximum records reached");
       break;
     default:
       break;
   }
 }
 
-/*
-void mainDisplayRecords(std::vector<TemperatureHumidity> temperatureHumidityList) {
-  if (temperatureHumidityList.empty()) {
-    Serial.println("La liste de temperature et d'humidite est vide !");
-  } else {
-    for (const TemperatureHumidity& data : temperatureHumidityList) {
-      Serial.print("Temperature: ");
-      Serial.print(data.temperature);
-      Serial.print(" °C, Humidity: ");
-      Serial.print(data.humidity);
-      Serial.println(" %");
-    }
-  }
+DateTime decodeDateTimeString(String dateTimeString) {
+  int yearPos = dateTimeString.indexOf("-");
+  int monthPos = dateTimeString.indexOf("-", yearPos + 1);
+  int dayPos = dateTimeString.indexOf(" ", monthPos + 1);
+  int hourPos = dateTimeString.indexOf(" ", dayPos + 1);
+  int minutePos = dateTimeString.indexOf(":", hourPos + 1);
+  int secondPos = dateTimeString.indexOf(":", minutePos + 1);
+
+  int year = dateTimeString.substring(0, yearPos).toInt();
+  int month = dateTimeString.substring(yearPos + 1, monthPos).toInt();
+  int day = dateTimeString.substring(monthPos + 1, dayPos).toInt();
+  int hour = dateTimeString.substring(dayPos + 1, hourPos).toInt();
+  int minute = dateTimeString.substring(hourPos + 1, minutePos).toInt();
+  int second = dateTimeString.substring(minutePos + 1, secondPos).toInt();
+
+  return DateTime(year, month, day, hour, minute, second);
 }
-*/
+
+void logInfo(const String& message) {
+  Serial.print("[INFO] ");
+  Serial.println(message);
+}
+
+void logWarning(const String& message) {
+  Serial.print("[WARNING] ");
+  Serial.println(message);
+}
+
+void logError(const String& message) {
+  Serial.print("[ERROR] ");
+  Serial.println(message);
+}

@@ -7,7 +7,7 @@ struct DataStruct {
   uint8_t day;
   uint8_t hour;
   uint8_t minute;
-  uint8_t seconde;
+  uint8_t second;
   float temperature;
   float humidity;
 };
