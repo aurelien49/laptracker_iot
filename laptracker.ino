@@ -17,6 +17,7 @@
 #define LED_PIN 19
 #define SDA_RTC 21
 #define SCL_RTC 22
+#define LAPTRACKERNAMECONTROLLER "ESP32-1"
 
 const int RECORDING_TIME = 2000;
 const int MAX_RECORDS = 2000;
@@ -48,7 +49,7 @@ void handleButtonInterruptRecordFalling() {
 
 void setup() {
   Serial.begin(115200);
-  SerialBT.begin("LapTracker ici");
+  SerialBT.begin(LAPTRACKERNAMECONTROLLER);
 
   bpPower = new Button(BUTTON_PIN_POWER);
   bpRecord = new Button(BUTTON_PIN_RECORD);
@@ -77,19 +78,16 @@ void loop() {
     size_t separatorPos = commandReceived.indexOf("::");
     String command = commandReceived.substring(0, separatorPos);
 
-    Serial.print("commandReceived: ");
-    Serial.println(String(commandReceived));
-
     if (command == "UPDATE_TIME") {
       String temp = commandReceived.substring(separatorPos + 2);
       clock0 = decodeDateTimeString(temp);
       dataTimeUpdateRequired = true;
     } else if (command == "GET_DATA_LIST") {
       readDataListRequired = true;
-    } else if (command == "ERASE_DATA_LIST") {
+    } else if (command == "DELETE_DATA_LIST") {
       razDataListRequired = true;
     } else {
-      Serial.println("+++++++++++++ Invalid Bluetooth command received");
+      logError("Invalid Bluetooth command received : " + commandReceived);
     }
   }
   delay(1);
@@ -176,6 +174,7 @@ void posterieur() {
       break;
     case 4:
       dataList = dataManagement->getdataList();
+      sendListDataOverBluetooth();
       readDataListRequired = false;
       break;
     case 5:
@@ -190,6 +189,18 @@ void posterieur() {
       break;
   }
 }
+
+void sendListDataOverBluetooth() {
+  String jsonListData;
+  for (const DataStruct& data : dataList) {
+    // Construire le JSON avec les données nécessaires
+    jsonListData += "{\"temperature\":" + String(data.temperature) + ",\"humidity\":" + String(data.humidity) + "},";
+  }
+  jsonListData = "[" + jsonListData.substring(0, jsonListData.length() - 1) + "]";  // Supprimer la dernière virgule et ajouter des crochets pour obtenir un tableau JSON
+
+  SerialBT.print("LIST_DATA::" + jsonListData + "\n");  // Envoyer les données au format "LIST_DATA::[...]"
+}
+
 
 DateTime decodeDateTimeString(String dateTimeString) {
   int yearPos = dateTimeString.indexOf("-");
