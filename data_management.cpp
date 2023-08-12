@@ -32,7 +32,7 @@ void DataManagement::recordingData(unsigned long currentTime) {
     }
 
     if (dataList.size() < MAX_RECORDS) {
-      DataStruct data = { dateAndTimeM.year(), dateAndTimeM.month(), dateAndTimeM.day(), dateAndTimeM.hour(), dateAndTimeM.minute(), dateAndTimeM.second(), humidity, temperature };
+      DataStruct data = { dateAndTimeM.year(), dateAndTimeM.month(), dateAndTimeM.day(), dateAndTimeM.hour(), dateAndTimeM.minute(), dateAndTimeM.second(), temperature, humidity };
 
       addTemperatureHumidity(data);
       displayMessage(String(data.day) + "-" + String(data.month) + "-" + String(data.year) + " / " + String(data.hour) + "-" + String(data.minute) + "-" + String(data.second) + " :" + ", humidity: " + String(data.temperature) + "°C, " + ", temperature: " + String(data.humidity));

@@ -10,13 +10,16 @@
 #include <RTClib.h>
 
 #define DHTTYPE DHT11
-#define DHTPIN 32
 
 #define BUTTON_PIN_POWER 18
 #define BUTTON_PIN_RECORD 33
-#define LED_PIN 19
+#define DHTPIN 32
+#define LED_BLUE_PIN 18
+#define LED_GREEN_PIN 19
+#define LED_RED_PIN 4
 #define SDA_RTC 21
 #define SCL_RTC 22
+
 #define LAPTRACKERNAMECONTROLLER "ESP32-1"
 
 const int RECORDING_TIME = 2000;
@@ -33,13 +36,15 @@ float humidity = 0.0;
 Button* bpPower;
 Button* bpRecord;
 DataManagement* dataManagement;
+Led* blueLed;
 Led* greenLed;
+Led* redLed;
 
 const std::vector<int> grafcetStepNumbers = { 0, 1, 2, 3, 4, 5, 6 };
 Grafcet grafcet(grafcetStepNumbers);
 
 int recordSize = 0;
-bool dataTimeUpdateRequired = false, readDataListRequired = false, razDataListRequired = false, maxRecordReached = false;
+bool dataTimeUpdateRequired = false, readDateTimeRequired = false, readDataListRequired = false, razDataListRequired = false, maxRecordReached = false;
 
 std::vector<DataStruct> dataList;
 
@@ -54,11 +59,15 @@ void setup() {
   bpPower = new Button(BUTTON_PIN_POWER);
   bpRecord = new Button(BUTTON_PIN_RECORD);
   dataManagement = new DataManagement(DHTPIN, DHTTYPE, &rtc, clock0, RECORDING_TIME, MAX_RECORDS);
-  greenLed = new Led(LED_PIN);
+  blueLed = new Led(LED_BLUE_PIN);
+  greenLed = new Led(LED_GREEN_PIN);
+  redLed = new Led(LED_RED_PIN);
 
   pinMode(BUTTON_PIN_POWER, INPUT_PULLUP);
   pinMode(BUTTON_PIN_RECORD, INPUT_PULLUP);
-  pinMode(LED_PIN, OUTPUT);
+  pinMode(LED_BLUE_PIN, OUTPUT);
+  pinMode(LED_GREEN_PIN, OUTPUT);
+  pinMode(LED_RED_PIN, OUTPUT);
 
   attachInterrupt(digitalPinToInterrupt(BUTTON_PIN_RECORD), handleButtonInterruptRecordFalling, FALLING);
 
@@ -77,15 +86,28 @@ void loop() {
 
     size_t separatorPos = commandReceived.indexOf("::");
     String command = commandReceived.substring(0, separatorPos);
+    logInfo("commande received : " + command);
 
     if (command == "UPDATE_TIME") {
       String temp = commandReceived.substring(separatorPos + 2);
       clock0 = decodeDateTimeString(temp);
       dataTimeUpdateRequired = true;
+    } else if (command == "GET_DATE_TIME") {
+      logInfo("L'app demande l'heure du module");
+      sendDateTimeOverBluetooth();
+      readDateTimeRequired = true;
     } else if (command == "GET_DATA_LIST") {
       readDataListRequired = true;
     } else if (command == "DELETE_DATA_LIST") {
       razDataListRequired = true;
+    } else if (command == "APP_REQUEST_BLUE_LED_ON") {
+      appRequestBlueLedOn();
+    } else if (command == "APP_REQUEST_GREEN_LED_ON") {
+      appRequestGreenLedOn();
+    } else if (command == "APP_REQUEST_RED_LED_ON") {
+      appRequestRedLedOn();
+    } else if ((command == "APP_REQUEST_LEDS_OFF")) {
+      appRequestLedsOff();
     } else {
       logError("Invalid Bluetooth command received : " + commandReceived);
     }
@@ -158,12 +180,19 @@ void transitions() {
 void posterieur() {
   switch (grafcet.getActiveStepNumber()) {
     case 0:
+      blueLed->toggle(LED_OFF);
+      greenLed->toggle(LED_ON);
+      redLed->toggle(LED_OFF);
       break;
     case 1:
-      greenLed->toggle(LED_ON);
+      blueLed->toggle(LED_ON);
+      greenLed->toggle(LED_OFF);
+      redLed->toggle(LED_OFF);
       break;
     case 2:
-      greenLed->toggle(LED_FLASHING);
+      blueLed->toggle(LED_FLASHING);
+      greenLed->toggle(LED_OFF);
+      redLed->toggle(LED_OFF);
       dataManagement->recordingData(millis());
       recordSize = dataManagement->getdataList().size();
       maxRecordReached = recordSize > MAX_RECORDS ? true : false;
@@ -174,7 +203,7 @@ void posterieur() {
       break;
     case 4:
       dataList = dataManagement->getdataList();
-      sendListDataOverBluetooth();
+      sendDataListOverBluetooth();
       readDataListRequired = false;
       break;
     case 5:
@@ -190,15 +219,85 @@ void posterieur() {
   }
 }
 
-void sendListDataOverBluetooth() {
-  String jsonListData;
-  for (const DataStruct& data : dataList) {
-    // Construire le JSON avec les données nécessaires
-    jsonListData += "{\"temperature\":" + String(data.temperature) + ",\"humidity\":" + String(data.humidity) + "},";
-  }
-  jsonListData = "[" + jsonListData.substring(0, jsonListData.length() - 1) + "]";  // Supprimer la dernière virgule et ajouter des crochets pour obtenir un tableau JSON
+void appRequestBlueLedOn() {
+  blueLed->toggle(LED_ON);
+  greenLed->toggle(LED_OFF);
+  redLed->toggle(LED_OFF);
+}
 
-  SerialBT.print("LIST_DATA::" + jsonListData + "\n");  // Envoyer les données au format "LIST_DATA::[...]"
+void appRequestGreenLedOn() {
+  blueLed->toggle(LED_OFF);
+  greenLed->toggle(LED_ON);
+  redLed->toggle(LED_OFF);
+}
+
+void appRequestRedLedOn() {
+  blueLed->toggle(LED_OFF);
+  greenLed->toggle(LED_OFF);
+  redLed->toggle(LED_ON);
+}
+
+void appRequestLedsOff() {
+  blueLed->toggle(LED_OFF);
+  greenLed->toggle(LED_OFF);
+  redLed->toggle(LED_OFF);
+}
+
+void sendDateTimeOverBluetooth() {
+  String jsonListData;
+  if (!rtc.isrunning()) {
+    logError("RTC module is not running !");
+    return;
+  }
+
+  jsonListData += "{";
+  jsonListData += "\"year\":\"" + String(rtc.now().year()) + "\",";
+  jsonListData += "\"month\":\"" + String(rtc.now().month()) + "\",";
+  jsonListData += "\"day\":\"" + String(rtc.now().day()) + "\",";
+  jsonListData += "\"hour\":\"" + String(rtc.now().hour()) + "\",";
+  jsonListData += "\"minute\":\"" + String(rtc.now().minute()) + "\",";
+  jsonListData += "\"second\":\"" + String(rtc.now().second()) + "\"";
+  jsonListData += "},";
+
+  jsonListData = "[" + jsonListData.substring(0, jsonListData.length() - 1) + "]";
+
+  SerialBT.print("INIT_READ_DATE_TIME::" + jsonListData + "_END");
+  readDateTimeRequired = false;
+  logInfo("Heure du module envoyée à l'app");
+}
+
+void sendStepChangeOta() {
+  String jsonListData;
+  if (dataList.empty()) { return; }
+  for (const DataStruct& data : dataList) {
+    jsonListData += "{";
+    jsonListData += "\"setNumber\":\"" + String(grafcet.getActiveStepNumber()) + "\",";
+    jsonListData += "\"state\":\"" + String(1) + "\"";
+    jsonListData += "},";
+  }
+  jsonListData = "[" + jsonListData.substring(0, jsonListData.length() - 1) + "]";
+
+  SerialBT.print("INIT_STEP_NUMBER_UPDATE::" + jsonListData + "_END");
+}
+
+void sendDataListOverBluetooth() {
+  String jsonListData;
+  if (dataList.empty()) { return; }
+  for (const DataStruct& data : dataList) {
+    jsonListData += "{";
+    jsonListData += "\"year\":\"" + String(data.year) + "\",";
+    jsonListData += "\"month\":\"" + String(data.month) + "\",";
+    jsonListData += "\"day\":\"" + String(data.day) + "\",";
+    jsonListData += "\"hour\":\"" + String(data.hour) + "\",";
+    jsonListData += "\"minute\":\"" + String(data.minute) + "\",";
+    jsonListData += "\"second\":\"" + String(data.second) + "\",";
+    jsonListData += "\"temperature\":\"" + String(data.temperature) + "\",";
+    jsonListData += "\"humidity\":\"" + String(data.humidity) + "\"";
+    jsonListData += "},";
+  }
+  jsonListData = "[" + jsonListData.substring(0, jsonListData.length() - 1) + "]";
+
+  SerialBT.print("INIT_READ_DATA_LIST::" + jsonListData + "_END");
 }
 
 
