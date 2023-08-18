@@ -22,8 +22,8 @@
 
 #define LAPTRACKERNAMECONTROLLER "ESP32-1"
 
-const int RECORDING_TIME = 2000;
-const int MAX_RECORDS = 2000;
+const uint16_t RECORDING_TIME = 2000;
+const uint16_t MAX_RECORDS = 2000;
 
 BluetoothSerial SerialBT;
 
@@ -73,12 +73,17 @@ void setup() {
 
   delay(1000);
   grafcet.update(0);
+  displayMemorySizes();
 }
 
 void loop() {
   transitions();
   posterieur();
+  otaManagement();
+  delay(1);  // for async calls
+}
 
+void otaManagement() {
   if (SerialBT.available()) {
     Serial.println("SerialBT.available");
 
@@ -112,7 +117,6 @@ void loop() {
       logError("Invalid Bluetooth command received : " + commandReceived);
     }
   }
-  delay(1);
 }
 
 void transitions() {
@@ -266,18 +270,18 @@ void sendDateTimeOverBluetooth() {
   logInfo("Heure du module envoyée à l'app");
 }
 
-void sendStepChangeOta() {
+void sendStepChangebyOta(bool isRecording) {
   String jsonListData;
-  if (dataList.empty()) { return; }
+
   for (const DataStruct& data : dataList) {
     jsonListData += "{";
     jsonListData += "\"setNumber\":\"" + String(grafcet.getActiveStepNumber()) + "\",";
-    jsonListData += "\"state\":\"" + String(1) + "\"";
+    jsonListData += "\"recordingState\":\"" + String(isRecording) + "\"";
     jsonListData += "},";
   }
   jsonListData = "[" + jsonListData.substring(0, jsonListData.length() - 1) + "]";
 
-  SerialBT.print("INIT_STEP_NUMBER_UPDATE::" + jsonListData + "_END");
+  SerialBT.print("INIT_STEP_NUMBER_STATE::" + jsonListData + "_END");
 }
 
 void sendDataListOverBluetooth() {
@@ -317,6 +321,25 @@ DateTime decodeDateTimeString(String dateTimeString) {
   int second = dateTimeString.substring(minutePos + 1, secondPos).toInt();
 
   return DateTime(year, month, day, hour, minute, second);
+}
+
+void displayMemorySizes() {
+  Serial.println("\n==================================");
+  Serial.println("Tailles de la mémoire de l'ESP32 :");
+
+  Serial.print("Mémoire SRAM libre : ");
+  Serial.println(ESP.getFreeHeap());
+
+  Serial.print("Taille du programme : ");
+  Serial.println(ESP.getSketchSize());
+
+  Serial.print("Espace libre pour le programme : ");
+  Serial.println(ESP.getFreeSketchSpace());
+
+  Serial.print("Taille totale de la puce flash : ");
+  Serial.println(ESP.getFlashChipSize());
+
+  Serial.println("==================================\n");
 }
 
 void logInfo(const String& message) {
