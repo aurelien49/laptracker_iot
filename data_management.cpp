@@ -1,16 +1,14 @@
 #include "data_management.h"
 
-DataManagement::DataManagement(int dhtPin, uint8_t dhtType, RTC_DS1307* rtc0, DateTime clock0, const int RECORDING_TIME0, const int MAX_RECORDS0)
-  : dataList(),
-    lastToggleTime(0),
+DataManagement::DataManagement(DHT* dht0, RTC_DS1307* rtc0, Adafruit_MPU6050* mpu0, DateTime clock0, const int RECORDING_TIME0, const int MAX_RECORDS0)
+  : dht(dht0),
     rtc(rtc0),
-    dht(dhtPin, dhtType),
-    dateAndTimeM(clock0),
+    mpu(mpu0),
     RECORDING_TIME(RECORDING_TIME0),
-    MAX_RECORDS(MAX_RECORDS0) {
-  dht.begin();
-  rtc->begin();
-  rtc->adjust(clock0);
+    MAX_RECORDS(MAX_RECORDS0),
+    dateAndTimeM(clock0),
+    dataList(),
+    lastToggleTime(0) {
 }
 
 std::vector<DataStruct>& DataManagement::getdataList() {
@@ -23,19 +21,42 @@ void DataManagement::recordingData(unsigned long currentTime) {
 
     dateAndTimeM = rtc->now();
 
-    float humidity = dht.readHumidity();
-    float temperature = dht.readTemperature();
+    float humidity = dht->readHumidity();
+    float temperature = dht->readTemperature();
 
     if (isnan(humidity) || isnan(temperature)) {
       displayMessage("Echec reception température");
       return;
     }
 
+    sensors_event_t accel, gyro, temper;
+    mpu->getEvent(&accel, &gyro, &temper);
+
+    float accelX = accel.acceleration.x;
+    float accelY = accel.acceleration.y;
+    float accelZ = accel.acceleration.z;
+
+    // Calcul des angles en degrés
+    roll = atan2(accelY, accelZ) * RAD_TO_DEG;
+    pitch = atan2(-accelX, sqrt(accelY * accelY + accelZ * accelZ)) * RAD_TO_DEG;
+    yaw = gyro.gyro.z;
+
+    float gyroX = gyro.gyro.x;
+    float gyroY = gyro.gyro.y;
+    float gyroZ = gyro.gyro.z;
+    logInfo("gyroX : " + String(gyroX));
+    logInfo("gyroY : " + String(gyroY));
+    logInfo("gyroZ : " + String(gyroZ));
+
+    //logInfo(", gyro.gyro.z :" + String(gyro.gyro.z));
+
     if (dataList.size() < MAX_RECORDS) {
-      DataStruct data = { dateAndTimeM.year(), dateAndTimeM.month(), dateAndTimeM.day(), dateAndTimeM.hour(), dateAndTimeM.minute(), dateAndTimeM.second(), temperature, humidity };
+      DataStruct data = { dateAndTimeM.year(), dateAndTimeM.month(), dateAndTimeM.day(), dateAndTimeM.hour(), dateAndTimeM.minute(), dateAndTimeM.second(), temperature, humidity, roll, pitch, yaw };
 
       addTemperatureHumidity(data);
-      displayMessage(String(data.day) + "-" + String(data.month) + "-" + String(data.year) + " / " + String(data.hour) + "-" + String(data.minute) + "-" + String(data.second) + " :" + ", humidity: " + String(data.temperature) + "°C, " + ", temperature: " + String(data.humidity));
+      displayMessage(String(data.day) + "-" + String(data.month) + "-" + String(data.year) + " - " + String(data.hour) + "-" + String(data.minute) + "-" + String(data.second) + " :" + ", temperature: " + String(data.temperature) + "°C, " + ", humidity : " + String(data.humidity) + "%, Roll x: " + String(roll) + "°, pitch y: " + String(pitch) + "°, yaw z: " + String(yaw) + "°");
+    } else {
+      displayMessage("Maximum records reached !!! value = " + String(dataList.size() + ", maximum = " + String(MAX_RECORDS)));
     }
   }
 }

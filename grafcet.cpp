@@ -1,4 +1,5 @@
 #include "Grafcet.h"
+#include "helpers.h"
 #include "Step.h"
 
 Grafcet::Grafcet(const std::vector<int>& stepNumbers) {
@@ -10,8 +11,7 @@ Grafcet::Grafcet(const std::vector<int>& stepNumbers) {
 void Grafcet::update(int stepNumber) {
   for (Step& step : steps) {
     if (step.getNumber() == stepNumber) {
-      Serial.print("Active step : ");
-      Serial.println(stepNumber);
+      logInfo("Active step : " + String(stepNumber));
     }
     step.setActive(step.getNumber() == stepNumber);
   }

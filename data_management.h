@@ -1,24 +1,33 @@
 #ifndef DATA_MANAGEMENT_H
 #define DATA_MANAGEMENT_H
 
+#include <Adafruit_MPU6050.h>
+#include <Adafruit_Sensor.h>
 #include <Arduino.h>
 #include "data_struct.h"
 #include "DHT.h"
+#include "helpers.h"
+#include <RTClib.h>  //  ????
 #include <vector>
-#include <RTClib.h>
 
 class DataManagement {
 private:
   std::vector<DataStruct> dataList;
-  DHT dht;
+  DHT* dht;
   RTC_DS1307* rtc;
+  Adafruit_MPU6050* mpu;
   DateTime dateAndTimeM;
   unsigned long lastToggleTime;
-  int RECORDING_TIME = 2000;
-  int MAX_RECORDS = 2000;
+  int RECORDING_TIME = 2000;  //  ????
+  int MAX_RECORDS = 2000;     //  ????
+  uint16_t minVal = 265;
+  uint16_t maxVal = 402;
+  int16_t pitch;
+  int16_t roll;
+  int16_t yaw;
 
 public:
-  DataManagement(int dhtPin, uint8_t dhtType, RTC_DS1307* rtc0, DateTime clock0, const int RECORDING_TIME0, const int MAX_RECORDS0);
+  DataManagement(DHT* dht0, RTC_DS1307* rtc0, Adafruit_MPU6050* mpu0, DateTime clock0, const int RECORDING_TIME0, const int MAX_RECORDS0);
 
   std::vector<DataStruct>& getdataList();
 

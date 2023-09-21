@@ -1,51 +1,57 @@
+#include <Adafruit_MPU6050.h>
+#include <Adafruit_Sensor.h>
+#include <Arduino.h>
 #include "DHT.h"
 #include <BluetoothSerial.h>
 #include "button.h"
 #include "data_management.h"
 #include "Grafcet.h"
+#include "helpers.h"
 #include "led.h"
 #include "led_state.h"
+#include <RTClib.h>
 #include <vector>
 #include <Wire.h>
-#include <RTClib.h>
-
-#define DHTTYPE DHT11
 
 #define BUTTON_PIN_POWER 18
 #define BUTTON_PIN_RECORD 33
 #define DHTPIN 32
+#define DHTTYPE DHT11
+#define I2C_FREQ 400000
+#define LAPTRACKERNAMECONTROLLER "ESP32-1"
 #define LED_BLUE_PIN 18
 #define LED_GREEN_PIN 19
 #define LED_RED_PIN 4
-#define SDA_RTC 21
+#define SCL_GYR 26
 #define SCL_RTC 22
+#define SDA_GYR 25
+#define SDA_RTC 21
 
-#define LAPTRACKERNAMECONTROLLER "ESP32-1"
-
-const uint16_t RECORDING_TIME = 2000;
+const uint8_t I2C_GY_521_ADDRESS = 0x68;
 const uint16_t MAX_RECORDS = 2000;
+const uint16_t RECORDING_TIME = 2000;
+const int32_t GYR_SENSOR_ID = 0;
 
+const size_t bufferSize = 14;
+
+Adafruit_MPU6050 mpu;
 BluetoothSerial SerialBT;
-
-RTC_DS1307 rtc;
-DateTime clock0 = DateTime(2019, 6, 2, 12, 30, 20);
-
-float temperature = 0.0;
-float humidity = 0.0;
-
 Button* bpPower;
 Button* bpRecord;
 DataManagement* dataManagement;
+DateTime clock0;
+DHT dht(DHTPIN, DHTTYPE);
 Led* blueLed;
 Led* greenLed;
 Led* redLed;
+RTC_DS1307 rtc;
+TwoWire i2c_rtc = TwoWire(0);
+TwoWire i2c_gyr = TwoWire(1);
 
+bool dataTimeUpdateRequired = false, readDateTimeRequired = false, readDataListRequired = false, razDataListRequired = false, maxRecordReached = false;
+int recordSize = 0;
 const std::vector<int> grafcetStepNumbers = { 0, 1, 2, 3, 4, 5, 6 };
 Grafcet grafcet(grafcetStepNumbers);
-
-int recordSize = 0;
-bool dataTimeUpdateRequired = false, readDateTimeRequired = false, readDataListRequired = false, razDataListRequired = false, maxRecordReached = false;
-
 std::vector<DataStruct> dataList;
 
 void handleButtonInterruptRecordFalling() {
@@ -56,18 +62,43 @@ void setup() {
   Serial.begin(115200);
   SerialBT.begin(LAPTRACKERNAMECONTROLLER);
 
-  bpPower = new Button(BUTTON_PIN_POWER);
-  bpRecord = new Button(BUTTON_PIN_RECORD);
-  dataManagement = new DataManagement(DHTPIN, DHTTYPE, &rtc, clock0, RECORDING_TIME, MAX_RECORDS);
-  blueLed = new Led(LED_BLUE_PIN);
-  greenLed = new Led(LED_GREEN_PIN);
-  redLed = new Led(LED_RED_PIN);
-
   pinMode(BUTTON_PIN_POWER, INPUT_PULLUP);
   pinMode(BUTTON_PIN_RECORD, INPUT_PULLUP);
   pinMode(LED_BLUE_PIN, OUTPUT);
   pinMode(LED_GREEN_PIN, OUTPUT);
   pinMode(LED_RED_PIN, OUTPUT);
+
+  bpPower = new Button(BUTTON_PIN_POWER);
+  bpRecord = new Button(BUTTON_PIN_RECORD);
+  clock0 = DateTime(2020, 12, 31, 23, 59, 30);
+  blueLed = new Led(LED_BLUE_PIN);
+  greenLed = new Led(LED_GREEN_PIN);
+  redLed = new Led(LED_RED_PIN);
+
+  i2c_gyr.setPins(SDA_GYR, SCL_GYR);
+
+  bool isI2cGyrOK = i2c_gyr.begin(SDA_GYR, SCL_GYR, I2C_FREQ);
+  bool isI2cRtcOK = i2c_rtc.begin(SDA_RTC, SCL_RTC, I2C_FREQ);
+
+  logInfo("isI2cGyrOK = " + String(isI2cGyrOK));
+  logInfo("isI2cRtcOK = " + String(isI2cRtcOK));
+
+  delay(10);
+
+  bool isMpuBeginOK = mpu.begin(I2C_GY_521_ADDRESS, &i2c_gyr, GYR_SENSOR_ID);
+  logInfo("isMpuBeginOK = " + String(isMpuBeginOK));
+
+  mpu.setAccelerometerRange(MPU6050_RANGE_16_G);
+  mpu.setGyroRange(MPU6050_RANGE_250_DEG);
+  mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
+
+  bool isRtcBeginOK = rtc.begin(&i2c_rtc);
+  logInfo("isRtcBeginOK = " + String(isRtcBeginOK));
+  rtc.adjust(clock0);  // Has to be commented
+
+  dht.begin();
+
+  dataManagement = new DataManagement(&dht, &rtc, &mpu, clock0, RECORDING_TIME, MAX_RECORDS);
 
   attachInterrupt(digitalPinToInterrupt(BUTTON_PIN_RECORD), handleButtonInterruptRecordFalling, FALLING);
 
@@ -85,7 +116,7 @@ void loop() {
 
 void otaManagement() {
   if (SerialBT.available()) {
-    Serial.println("SerialBT.available");
+    logInfo("SerialBT.available");
 
     String commandReceived = SerialBT.readStringUntil('\n');
 
@@ -296,7 +327,10 @@ void sendDataListOverBluetooth() {
     jsonListData += "\"minute\":\"" + String(data.minute) + "\",";
     jsonListData += "\"second\":\"" + String(data.second) + "\",";
     jsonListData += "\"temperature\":\"" + String(data.temperature) + "\",";
-    jsonListData += "\"humidity\":\"" + String(data.humidity) + "\"";
+    jsonListData += "\"humidity\":\"" + String(data.humidity) + "\",";
+    jsonListData += "\"roll\":\"" + String(data.roll) + "\",";
+    jsonListData += "\"pitch\":\"" + String(data.pitch) + "\",";
+    jsonListData += "\"yaw\":\"" + String(data.yaw) + "\"";
     jsonListData += "},";
   }
   jsonListData = "[" + jsonListData.substring(0, jsonListData.length() - 1) + "]";
@@ -304,55 +338,47 @@ void sendDataListOverBluetooth() {
   SerialBT.print("INIT_READ_DATA_LIST::" + jsonListData + "_END");
 }
 
-
 DateTime decodeDateTimeString(String dateTimeString) {
+  logInfo("decodeDateTimeString dateTimeString: " + dateTimeString);
   int yearPos = dateTimeString.indexOf("-");
   int monthPos = dateTimeString.indexOf("-", yearPos + 1);
   int dayPos = dateTimeString.indexOf(" ", monthPos + 1);
-  int hourPos = dateTimeString.indexOf(" ", dayPos + 1);
+  int hourPos = dateTimeString.indexOf(":", dayPos + 1);
   int minutePos = dateTimeString.indexOf(":", hourPos + 1);
-  int secondPos = dateTimeString.indexOf(":", minutePos + 1);
+  int secondPos = minutePos + 1;
+  /*
+  logInfo("yearPos : " + String(yearPos));
+  logInfo("monthPos : " + String(monthPos));
+  logInfo("dayPos : " + String(dayPos));
+  logInfo("hourPos : " + String(hourPos));
+  logInfo("minutePos : " + String(minutePos));
+  logInfo("secondPos : " + String(secondPos));*/
 
   int year = dateTimeString.substring(0, yearPos).toInt();
   int month = dateTimeString.substring(yearPos + 1, monthPos).toInt();
   int day = dateTimeString.substring(monthPos + 1, dayPos).toInt();
   int hour = dateTimeString.substring(dayPos + 1, hourPos).toInt();
   int minute = dateTimeString.substring(hourPos + 1, minutePos).toInt();
-  int second = dateTimeString.substring(minutePos + 1, secondPos).toInt();
+  int second = dateTimeString.substring(minutePos + 1).toInt();
 
   return DateTime(year, month, day, hour, minute, second);
 }
 
 void displayMemorySizes() {
-  Serial.println("\n==================================");
-  Serial.println("Tailles de la mémoire de l'ESP32 :");
+  logInfo("\n==================================");
+  logInfo("Tailles de la mémoire de l'ESP32 :");
 
-  Serial.print("Mémoire SRAM libre : ");
-  Serial.println(ESP.getFreeHeap());
+  logInfo("Mémoire SRAM libre : ");
+  logInfo(String(ESP.getFreeHeap()));
 
-  Serial.print("Taille du programme : ");
-  Serial.println(ESP.getSketchSize());
+  logInfo("Taille du programme : ");
+  logInfo(String(ESP.getSketchSize()));
 
-  Serial.print("Espace libre pour le programme : ");
-  Serial.println(ESP.getFreeSketchSpace());
+  logInfo("Espace libre pour le programme : ");
+  logInfo(String(ESP.getFreeSketchSpace()));
 
-  Serial.print("Taille totale de la puce flash : ");
-  Serial.println(ESP.getFlashChipSize());
+  logInfo("Taille totale de la puce flash : ");
+  logInfo(String(ESP.getFlashChipSize()));
 
-  Serial.println("==================================\n");
-}
-
-void logInfo(const String& message) {
-  Serial.print("[INFO] ");
-  Serial.println(message);
-}
-
-void logWarning(const String& message) {
-  Serial.print("[WARNING] ");
-  Serial.println(message);
-}
-
-void logError(const String& message) {
-  Serial.print("[ERROR] ");
-  Serial.println(message);
+  logInfo("==================================\n");
 }

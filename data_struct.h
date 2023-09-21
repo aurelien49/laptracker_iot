@@ -10,6 +10,9 @@ struct DataStruct {
   uint8_t second;
   float temperature;
   float humidity;
+  int16_t pitch;
+  int16_t roll;
+  int16_t yaw;
 };
 
 #endif
