@@ -18,8 +18,8 @@ private:
   Adafruit_MPU6050* mpu;
   DateTime dateAndTimeM;
   unsigned long lastToggleTime;
-  int RECORDING_TIME = 2000;  //  ????
-  int MAX_RECORDS = 2000;     //  ????
+  int RECORDING_TIME = 2000;  //  A tester
+  int MAX_RECORDS = 2000;     //  A tester
   uint16_t minVal = 265;
   uint16_t maxVal = 402;
   int16_t pitch;

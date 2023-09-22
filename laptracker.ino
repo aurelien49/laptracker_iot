@@ -18,7 +18,7 @@
 #define DHTPIN 32
 #define DHTTYPE DHT11
 #define I2C_FREQ 400000
-#define LAPTRACKERNAMECONTROLLER "ESP32-1"
+#define IOT_DEVICE_NAME "ESP32-1"
 #define LED_BLUE_PIN 18
 #define LED_GREEN_PIN 19
 #define LED_RED_PIN 4
@@ -60,7 +60,7 @@ void handleButtonInterruptRecordFalling() {
 
 void setup() {
   Serial.begin(115200);
-  SerialBT.begin(LAPTRACKERNAMECONTROLLER);
+  SerialBT.begin(IOT_DEVICE_NAME);
 
   pinMode(BUTTON_PIN_POWER, INPUT_PULLUP);
   pinMode(BUTTON_PIN_RECORD, INPUT_PULLUP);
@@ -244,10 +244,10 @@ void posterieur() {
     case 5:
       dataManagement->eraseList();
       razDataListRequired = false;
-      //logInfo("Step 5 : records ereased from Bluetooth");
+      logInfo("Step 5 : records ereased from Bluetooth");
       break;
     case 6:
-      //logInfo("Step 6 : maximum records reached");
+      logInfo("Step 6 : maximum records reached");
       break;
     default:
       break;
@@ -285,20 +285,17 @@ void sendDateTimeOverBluetooth() {
     return;
   }
 
+  String formattedDate = formatDateTime(rtc.now().year(), rtc.now().month(), rtc.now().day(), rtc.now().hour(), rtc.now().minute(), rtc.now().second());
+
   jsonListData += "{";
-  jsonListData += "\"year\":\"" + String(rtc.now().year()) + "\",";
-  jsonListData += "\"month\":\"" + String(rtc.now().month()) + "\",";
-  jsonListData += "\"day\":\"" + String(rtc.now().day()) + "\",";
-  jsonListData += "\"hour\":\"" + String(rtc.now().hour()) + "\",";
-  jsonListData += "\"minute\":\"" + String(rtc.now().minute()) + "\",";
-  jsonListData += "\"second\":\"" + String(rtc.now().second()) + "\"";
+  jsonListData += "\"dateTimeFromEsp\":\"" + formattedDate + "\"";
   jsonListData += "},";
 
-  jsonListData = "[" + jsonListData.substring(0, jsonListData.length() - 1) + "]";
+  jsonListData = jsonListData.substring(0, jsonListData.length() - 1);
 
   SerialBT.print("INIT_READ_DATE_TIME::" + jsonListData + "_END");
   readDateTimeRequired = false;
-  logInfo("Heure du module envoyée à l'app");
+  logInfo("Heure du module " + formattedDate + " envoyée à l'app");
 }
 
 void sendStepChangebyOta(bool isRecording) {
@@ -317,7 +314,10 @@ void sendStepChangebyOta(bool isRecording) {
 
 void sendDataListOverBluetooth() {
   String jsonListData;
-  if (dataList.empty()) { return; }
+  //if (dataList.empty()) { return; }
+
+  String headerVariables = "\"iotDeviceName\":\"" + String(IOT_DEVICE_NAME) + "\",";
+
   for (const DataStruct& data : dataList) {
     jsonListData += "{";
     jsonListData += "\"year\":\"" + String(data.year) + "\",";
@@ -333,7 +333,7 @@ void sendDataListOverBluetooth() {
     jsonListData += "\"yaw\":\"" + String(data.yaw) + "\"";
     jsonListData += "},";
   }
-  jsonListData = "[" + jsonListData.substring(0, jsonListData.length() - 1) + "]";
+  jsonListData = "{" + headerVariables + "\"data\":[" + jsonListData.substring(0, jsonListData.length() - 1) + "]}";
 
   SerialBT.print("INIT_READ_DATA_LIST::" + jsonListData + "_END");
 }
@@ -346,13 +346,6 @@ DateTime decodeDateTimeString(String dateTimeString) {
   int hourPos = dateTimeString.indexOf(":", dayPos + 1);
   int minutePos = dateTimeString.indexOf(":", hourPos + 1);
   int secondPos = minutePos + 1;
-  /*
-  logInfo("yearPos : " + String(yearPos));
-  logInfo("monthPos : " + String(monthPos));
-  logInfo("dayPos : " + String(dayPos));
-  logInfo("hourPos : " + String(hourPos));
-  logInfo("minutePos : " + String(minutePos));
-  logInfo("secondPos : " + String(secondPos));*/
 
   int year = dateTimeString.substring(0, yearPos).toInt();
   int month = dateTimeString.substring(yearPos + 1, monthPos).toInt();
@@ -362,6 +355,12 @@ DateTime decodeDateTimeString(String dateTimeString) {
   int second = dateTimeString.substring(minutePos + 1).toInt();
 
   return DateTime(year, month, day, hour, minute, second);
+}
+
+String formatDateTime(int year, int month, int day, int hour, int minute, int second) {
+  char formatted[20];
+  sprintf(formatted, "%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
+  return String(formatted);
 }
 
 void displayMemorySizes() {
